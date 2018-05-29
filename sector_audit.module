@@ -1,0 +1,89 @@
+<?php
+
+/**
+ * @file
+ * Contains sector_audit.module.
+ */
+
+use Drupal\Core\Routing\RouteMatchInterface;
+use Drupal\Core\Form\FormStateInterface;
+use Drupal\field\Entity\FieldStorageConfig;
+use Drupal\field\Entity\FieldConfig;
+
+/**
+ * Implements hook_help().
+ */
+function sector_audit_help($route_name, RouteMatchInterface $route_match) {
+  switch ($route_name) {
+    // Main module help for the sector_audit module.
+    case 'help.page.sector_audit':
+      $output = '';
+      $output .= '<h3>' . t('About') . '</h3>';
+      $output .= '<p>' . t('Sector audit add on') . '</p>';
+      return $output;
+
+    default:
+  }
+}
+
+/**
+ * Implements hook_theme().
+ */
+function sector_audit_theme() {
+  return [
+    'sector_audit' => [
+      'render element' => 'children',
+    ],
+  ];
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function sector_audit_form_node_type_edit_form_alter(&$form, FormStateInterface $form_state) {
+
+  $contentType = $form['name']['#default_value'];
+  $machineName = $form['type']['#default_value'];
+  if (isset($form['type']) && !empty($contentType)) {
+    $form['sector_audit'] = [
+      '#type' => 'details',
+      '#title' => t('Sector Audit settings'),
+      '#collapsible' => TRUE,
+      '#collapsed' => TRUE,
+      '#group' => 'additional_settings',
+    ];
+    $form['sector_audit']['testing'] = [
+      '#type' => 'checkbox',
+      '#title' => t('Add audit fields to the @type content type.', ['@type' => $contentType]),
+      '#default_value' => FALSE,
+    ];
+    $field_storage = FieldStorageConfig::loadByName('node', 'test_field');
+    $field = FieldConfig::loadByName('node', $machineName, 'test_field');
+    $label = 'Sector audit - Test field';
+    kint($field);
+    if(empty($field)) {
+      $field = FieldConfig::create([
+        'field_storage' => $field_storage,
+        'bundle' => $machineName,
+        'label' => $label,
+        'settings' => ['display_summary' => TRUE],
+      ]);
+      $field->save();
+
+      // Assign widget settings for the 'default' form mode.
+      entity_get_form_display('node', $machineName, 'default')
+        ->setComponent('test_field', [
+          'type' => 'text_textarea_with_summary',
+        ])
+        ->save();
+
+      // Assign display settings for the 'default' view modes.
+      entity_get_display('node', $machineName, 'default')
+        ->setComponent('test_field', [
+          'label' => 'hidden',
+          'type' => 'text_default',
+        ])
+        ->save();
+    }
+  }
+}

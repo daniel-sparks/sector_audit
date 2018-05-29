@@ -1,0 +1,5 @@
+name: 'Sector audit'
+type: module
+description: 'Sector audit add on'
+core: 8.x
+package: 'Sector'
