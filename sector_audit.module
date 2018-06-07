@@ -44,46 +44,152 @@ function sector_audit_form_node_type_edit_form_alter(&$form, FormStateInterface 
 
   $contentType = $form['name']['#default_value'];
   $machineName = $form['type']['#default_value'];
+  $sectorAuditDefault = \Drupal::configFactory()->getEditable('sectorAudit.settings')->get('sectorAudit_' . $form['type']['#default_value']);
   if (isset($form['type']) && !empty($contentType)) {
     $form['sector_audit'] = [
       '#type' => 'details',
       '#title' => t('Sector Audit settings'),
+      '#disabled' => (!empty($sectorAuditDefault)) ? TRUE : FALSE,
       '#collapsible' => TRUE,
       '#collapsed' => TRUE,
       '#group' => 'additional_settings',
     ];
-    $form['sector_audit']['testing'] = [
+    $form['sector_audit']['audit_settings'] = [
       '#type' => 'checkbox',
       '#title' => t('Add audit fields to the @type content type.', ['@type' => $contentType]),
-      '#default_value' => FALSE,
+      '#default_value' => (!empty($sectorAuditDefault)) ? TRUE : FALSE,
     ];
-    $field_storage = FieldStorageConfig::loadByName('node', 'test_field');
-    $field = FieldConfig::loadByName('node', $machineName, 'test_field');
-    $label = 'Sector audit - Test field';
-    kint($field);
-    if(empty($field)) {
+    $form['actions']['submit']['#submit'][] = '_sector_audit_node_type_form_submit';
+  }
+}
+
+
+/**
+ * Creating custom form submit handler to save the settings to config file.
+ */
+function _sector_audit_node_type_form_submit($form, FormStateInterface $form_state) {
+
+  $machineName = $form['type']['#default_value'];
+  if ($form_state->getValue('audit_settings') == 1) {
+    _createFields($machineName);
+  }
+  //if($form_state->getValue('audit_settings') == 1) {
+    \Drupal::configFactory()->getEditable('sectorAudit.settings')
+      ->set('sectorAudit_' . $form['type']['#default_value'], $form_state->getValue('audit_settings'))
+      ->save();
+  //}
+}
+
+function _createFields($contentType) {
+
+  $auditFields = [
+    'field_content_audit' => 'Content audit',
+    'field_content_development' => 'Content development',
+    'field_document_notes' => 'Document notes',
+    'field_review_notes' => 'Review notes',
+    'field_audit_date' => 'Audit date',
+  ];
+  foreach ($auditFields as $auditField => $label) {
+    $fieldStorage = FieldStorageConfig::loadByName('node', $auditField);
+    $field = FieldConfig::loadByName('node', $contentType, $auditField);
+    //$label = 'Sector audit - Test field';
+    if (empty($field)) {
       $field = FieldConfig::create([
-        'field_storage' => $field_storage,
-        'bundle' => $machineName,
+        'field_storage' => $fieldStorage,
+        'bundle' => $contentType,
         'label' => $label,
         'settings' => ['display_summary' => TRUE],
       ]);
+      $taxonomyFields = [
+        'field_content_audit' => 'content_audit',
+        'field_content_development' => 'content_development',
+      ];
+      if(!empty($taxonomyFields[$auditField])) {
+        $settings = [
+          'handler_settings' => [
+            'target_bundles' => [
+              $taxonomyFields[$auditField] => $taxonomyFields[$auditField],
+            ],
+          ],
+        ];
+        $field->setSettings($settings);
+      }
       $field->save();
 
-      // Assign widget settings for the 'default' form mode.
-      entity_get_form_display('node', $machineName, 'default')
-        ->setComponent('test_field', [
-          'type' => 'text_textarea_with_summary',
-        ])
-        ->save();
+      $types = _getTypeByField($auditField);
 
-      // Assign display settings for the 'default' view modes.
-      entity_get_display('node', $machineName, 'default')
-        ->setComponent('test_field', [
-          'label' => 'hidden',
-          'type' => 'text_default',
+      // Assign widget settings for the 'default' form mode.
+      entity_get_form_display('node', $contentType, 'default')
+        ->setComponent($auditField, [
+          'type' => $types['form'],
         ])
         ->save();
+    }
+  }
+}
+
+function _getTypeByField($field) {
+  $types = [];
+  switch($field) {
+    case 'field_content_audit':
+      $types['form'] = 'options_buttons';
+      $types['display'] = 'entity_reference_label';
+      break;
+    case 'field_content_development':
+      $types['form'] = 'options_buttons';
+      $types['display'] = 'entity_reference_label';
+      break;
+    case 'field_document_notes':
+      $types['form'] = 'string_textarea';
+      $types['display'] = 'text_default';
+      break;
+    case 'field_review_notes':
+      $types['form'] = 'string_textarea';
+      $types['display'] = 'basic_string';
+      break;
+    case 'field_audit_date':
+      $types['form'] = 'datetime_default';
+      $types['display'] = 'datetime_default';
+      break;
+  }
+  return $types;
+}
+
+function sector_audit_form_alter(&$form, \Drupal\Core\Form\FormStateInterface $form_state, $form_id) {
+  $current_path = \Drupal::request()->getpathInfo();
+  // Retrieve an array which contains the path pieces.
+  $path_args = explode('/', $current_path);
+  $valid_checks = [
+    'add',
+    'edit'
+  ];
+  if(!empty($path_args)) {
+    if($path_args[1] == 'node' && in_array($path_args[2], $valid_checks) && !empty($path_args[3])) {
+      $crafted_form_id = 'node_' . $path_args[3] . '_form';
+      $auditFieldsAdded = \Drupal::configFactory()->getEditable('sectorAudit.settings')
+        ->get('sectorAudit_' . $path_args[3]);
+      if($form_id == $crafted_form_id && $auditFieldsAdded == 1) {
+        $audit_fields = [
+          'field_content_audit',
+          'field_content_development',
+          'field_document_notes',
+          'field_review_notes',
+          'field_audit_date',
+        ];
+        $form['sector_audit_settings'] = [
+          '#type' => 'details',
+          '#open' => FALSE,
+          '#title' => t('Audit and review'),
+          '#group' => 'advanced',
+          '#access' => TRUE,
+          '#weight' => 50,
+        ];
+        foreach($audit_fields as $audit_field) {
+          if(!empty($form[$audit_field])) {
+            $form[$audit_field]['#group'] = 'sector_audit_settings';
+          }
+        }
+      }
     }
   }
 }
